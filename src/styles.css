@@ -73,6 +73,8 @@ button { -webkit-tap-highlight-color: transparent; }
 .page-heading h1 { margin: 0; font: 600 24px/1.1 'Manrope', sans-serif; letter-spacing: -.7px; }
 .menu-button { display: none; padding: 5px; border: 0; background: transparent; }
 .topbar-actions { display: flex; align-items: center; gap: 9px; }
+.data-mode-badge { padding: 5px 8px; color: #35604f; border: 1px solid #b9cdc4; background: #f0f5f2; font-size: 8px; font-weight: 600; letter-spacing: .5px; text-transform: uppercase; white-space: nowrap; }
+.data-mode-badge.demo { color: #866126; border-color: #ddcda9; background: #f7f2e9; }
 .global-search { width: 255px; height: 36px; display: flex; align-items: center; gap: 8px; padding: 0 10px; color: #838781; border: 1px solid var(--line); background: #f8f7f3; }
 .global-search input { width: 100%; border: 0; outline: 0; color: var(--ink); background: transparent; font-size: 12px; }
 .global-search input::placeholder { color: #9a9d97; }
@@ -92,11 +94,15 @@ button { -webkit-tap-highlight-color: transparent; }
 .quiet-button:hover { color: var(--green); }
 .primary-button { color: #fff; background: var(--green); }
 .primary-button:hover { background: #324b44; }
+.primary-button:disabled, .secondary-button:disabled { opacity: .55; cursor: wait; }
 .secondary-button { background: transparent; color: var(--green); border-color: #aeb7b3; }
 .secondary-button:hover { border-color: var(--green); background: #eeefeb; }
 .text-button { display: inline-flex; align-items: center; gap: 4px; padding: 5px 0; border: 0; background: transparent; color: #68716c; font-size: 11px; cursor: pointer; }
 .text-button:hover { color: var(--green); }
 .panel { background: var(--paper); border: 1px solid var(--line); }
+.data-banner { margin: 14px 32px 0; padding: 10px 13px; color: #72551f; border: 1px solid #decda8; background: #f8f2e7; font-size: 10px; }
+.data-banner.api { color: #8d4039; border-color: #dfc0bd; background: #f8eceb; }
+.page-loading { padding: 80px 32px; color: var(--muted); text-align: center; font-size: 12px; }
 .panel-header { min-height: 66px; padding: 15px 18px; display: flex; align-items: center; justify-content: space-between; gap: 16px; border-bottom: 1px solid var(--line-light); }
 .panel-header > div:first-child > span, .section-title > div > span, .recommendation > div > span { display: block; margin-bottom: 3px; color: #8b8e88; font-size: 9px; font-weight: 600; letter-spacing: 1px; text-transform: uppercase; }
 .panel-header h2, .section-title h3, .recommendation h3 { margin: 0; font: 600 15px/1.25 'Manrope', sans-serif; letter-spacing: -.3px; }
@@ -259,6 +265,7 @@ button { -webkit-tap-highlight-color: transparent; }
 .no-product-options span { color: #9a9d98; font-size: 8px; }
 .field-hint { margin-top: -1px; font-size: 8px; }
 .field-hint.error { color: #9a4941; }
+.form-error { margin: 14px 0 0; color: #9a4941; font-size: 10px; }
 .modal-footer { margin-top: 24px; padding: 15px 0; display: flex; align-items: center; justify-content: flex-end; gap: 8px; border-top: 1px solid var(--line); }
 .stock-explanation { padding: 13px 14px; display: grid; grid-template-columns: 28px 1fr; align-items: center; gap: 10px; color: #4d655d; background: #f0f3f0; border: 1px solid #d5ddd8; }
 .stock-explanation strong { color: #33483f; font-size: 10px; }
@@ -425,7 +432,7 @@ button { -webkit-tap-highlight-color: transparent; }
 .integration-list article strong { font-size: 10px; }
 .integration-list article small { color: #8c908a; font-size: 8px; }
 .integration-status { padding: 4px 6px; border: 1px solid; font-size: 8px; }
-.integration-status.demo { color: #866126; border-color: #ddcda9; }.integration-status.offline { color: #777b76; border-color: #d0d2cd; }
+.integration-status.demo { color: #866126; border-color: #ddcda9; }.integration-status.offline { color: #777b76; border-color: #d0d2cd; }.integration-status.connected { color: #35604f; border-color: #b9cdc4; }
 .integration-list article > button { height: 30px; padding: 0 9px; color: var(--green); border: 1px solid #bfc8c3; background: transparent; font-size: 8px; cursor: pointer; }
 .integration-list article > button:hover { border-color: var(--green); background: #f0f2ef; }
 

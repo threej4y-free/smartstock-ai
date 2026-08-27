@@ -1,29 +1,37 @@
-import { type ChangeEvent, type FormEvent, useMemo, useState } from 'react'
-import { ArrowDownUp, Check, Download, Filter, ImagePlus, PackagePlus, Plus, Search, SlidersHorizontal, X } from 'lucide-react'
+import { type FormEvent, useMemo, useState } from 'react'
+import { ArrowDownUp, Check, Download, Filter, PackagePlus, Plus, Search, ShoppingCart, SlidersHorizontal, X } from 'lucide-react'
 import { RiskBadge } from '../components/RiskBadge'
-import type { Product, Risk } from '../types'
+import type { Product, ProductCreateInput, Risk, SaleCreateInput, StockReceiptInput } from '../types'
 
 interface ProductsPageProps {
   products: Product[]
   onProduct: (product: Product) => void
-  onAddProduct: (product: Product) => void
-  onAddStock: (productId: string, quantity: number, expiry: string) => void
+  onAddProduct: (input: ProductCreateInput) => Promise<void>
+  onAddStock: (input: StockReceiptInput) => Promise<void>
+  onSale: (input: SaleCreateInput) => Promise<void>
 }
 
 const emptyForm = {
-  name: '', sku: '', category: '', cost: '', price: '', stock: '', expiry: '', packSize: '', minimumOrder: '', imageUrl: '',
+  name: '', sku: '', category: '', cost: '', price: '', packSize: '1', minimumOrder: '0',
 }
 
 const emptyStockForm = {
   productId: '', quantity: '', batch: '', expiry: '', receivedAt: new Date().toISOString().slice(0, 10), supplier: '', invoice: '', unitCost: '',
 }
 
-export function ProductsPage({ products, onProduct, onAddProduct, onAddStock }: ProductsPageProps) {
+const createEmptySaleForm = () => ({
+  productId: '', quantity: '', reference: `VEN-${Date.now()}`, unitPrice: '', actor: 'Operação web',
+})
+
+export function ProductsPage({ products, onProduct, onAddProduct, onAddStock, onSale }: ProductsPageProps) {
   const [query, setQuery] = useState('')
   const [risk, setRisk] = useState<Risk | 'Todos'>('Todos')
-  const [activeModal, setActiveModal] = useState<'product' | 'stock' | null>(null)
+  const [activeModal, setActiveModal] = useState<'product' | 'stock' | 'sale' | null>(null)
   const [form, setForm] = useState(emptyForm)
   const [stockForm, setStockForm] = useState(emptyStockForm)
+  const [saleForm, setSaleForm] = useState(createEmptySaleForm)
+  const [submitting, setSubmitting] = useState(false)
+  const [formError, setFormError] = useState('')
   const [productSearch, setProductSearch] = useState('')
   const [productPickerOpen, setProductPickerOpen] = useState(false)
   const filtered = useMemo(() => products.filter(product => {
@@ -34,51 +42,81 @@ export function ProductsPage({ products, onProduct, onAddProduct, onAddStock }: 
 
   const updateField = (field: keyof typeof form, value: string) => setForm(current => ({ ...current, [field]: value }))
 
-  const handleImage = (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0]
-    if (!file) return
-    const reader = new FileReader()
-    reader.onload = () => updateField('imageUrl', String(reader.result))
-    reader.readAsDataURL(file)
-  }
-
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    const stock = Number(form.stock)
-    const newProduct: Product = {
-      id: `prod-${Date.now()}`,
-      name: form.name,
-      sku: form.sku.toUpperCase(),
-      category: form.category,
-      stock,
-      sold7: 0,
-      forecast7: 0,
-      forecast28: 0,
-      range: '—',
-      cover: stock > 0 ? 30 : 0,
-      recommendation: 0,
-      expiry: form.expiry ? new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'UTC' }).format(new Date(`${form.expiry}T00:00:00Z`)).replace('.', '') : 'Sem controle',
-      risk: stock > 0 ? 'Saudável' : 'Atenção',
-      cost: Number(form.cost),
-      imageUrl: form.imageUrl || undefined,
+    setSubmitting(true); setFormError('')
+    try {
+      await onAddProduct({
+        name: form.name,
+        sku: form.sku.toUpperCase(),
+        category: form.category,
+        unitCost: Number(form.cost),
+        listPrice: Number(form.price),
+        packSize: Number(form.packSize || 1),
+        minimumOrder: Number(form.minimumOrder || 0),
+      })
+      setForm(emptyForm)
+      setActiveModal(null)
+    } catch (error) {
+      setFormError(error instanceof Error ? error.message : 'Não foi possível cadastrar o produto.')
+    } finally {
+      setSubmitting(false)
     }
-    onAddProduct(newProduct)
-    setForm(emptyForm)
-    setActiveModal(null)
   }
 
   const updateStockField = (field: keyof typeof stockForm, value: string) => setStockForm(current => ({ ...current, [field]: value }))
 
-  const handleStockSubmit = (event: FormEvent<HTMLFormElement>) => {
+  const handleStockSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     if (!stockForm.productId) return
-    const formattedExpiry = stockForm.expiry
-      ? new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'UTC' }).format(new Date(`${stockForm.expiry}T00:00:00Z`)).replace('.', '')
-      : ''
-    onAddStock(stockForm.productId, Number(stockForm.quantity), formattedExpiry)
-    setStockForm(emptyStockForm)
-    setProductSearch('')
-    setActiveModal(null)
+    setSubmitting(true); setFormError('')
+    try {
+      await onAddStock({
+        productId: stockForm.productId,
+        batchNumber: stockForm.batch,
+        quantity: Number(stockForm.quantity),
+        receivedAt: stockForm.receivedAt,
+        expiresAt: stockForm.expiry || null,
+        supplierName: stockForm.supplier,
+        invoiceNumber: stockForm.invoice || null,
+        unitCost: Number(stockForm.unitCost),
+        location: null,
+        actor: 'Operação web',
+      })
+      setStockForm(emptyStockForm)
+      setProductSearch('')
+      setActiveModal(null)
+    } catch (error) {
+      setFormError(error instanceof Error ? error.message : 'Não foi possível registrar o lote.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const handleSaleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    setSubmitting(true); setFormError('')
+    try {
+      await onSale({
+        productId: saleForm.productId,
+        quantity: Number(saleForm.quantity),
+        reference: saleForm.reference,
+        unitPrice: saleForm.unitPrice === '' ? null : Number(saleForm.unitPrice),
+        actor: saleForm.actor,
+      })
+      setSaleForm(createEmptySaleForm())
+      setActiveModal(null)
+    } catch (error) {
+      setFormError(error instanceof Error ? error.message : 'Não foi possível registrar a venda.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const openModal = (modal: 'product' | 'stock' | 'sale') => {
+    setFormError('')
+    if (modal === 'sale') setSaleForm(createEmptySaleForm())
+    setActiveModal(modal)
   }
 
   const selectStockProduct = (product: Product) => {
@@ -91,7 +129,7 @@ export function ProductsPage({ products, onProduct, onAddProduct, onAddStock }: 
     <div className="page-content products-page">
       <div className="intro-row">
         <div><p>Cadastre produtos novos ou registre a entrada de mais unidades no estoque.</p></div>
-        <div className="page-actions"><button className="quiet-button"><Download size={16} /> Exportar</button><button className="secondary-button" onClick={() => setActiveModal('product')}><Plus size={16} /> Cadastrar novo produto</button><button className="primary-button" onClick={() => setActiveModal('stock')}><PackagePlus size={16} /> Adicionar estoque</button></div>
+        <div className="page-actions"><button className="quiet-button"><Download size={16} /> Exportar</button><button className="secondary-button" onClick={() => openModal('sale')}><ShoppingCart size={16} /> Registrar venda</button><button className="secondary-button" onClick={() => openModal('product')}><Plus size={16} /> Cadastrar produto</button><button className="primary-button" onClick={() => openModal('stock')}><PackagePlus size={16} /> Adicionar estoque</button></div>
       </div>
       <section className="product-summary">
         <div><span>Produtos ativos</span><strong>{products.length}</strong></div><div><span>Estoque saudável</span><strong>{products.filter(item => item.risk === 'Saudável').length}</strong></div><div><span>Requer atenção</span><strong>{products.filter(item => item.risk === 'Atenção').length}</strong></div><div><span>Risco crítico</span><strong>{products.filter(item => item.risk === 'Crítico').length}</strong></div>
@@ -119,27 +157,20 @@ export function ProductsPage({ products, onProduct, onAddProduct, onAddStock }: 
         <section className="product-modal" role="dialog" aria-modal="true" aria-labelledby="new-product-title">
           <header className="modal-header"><div><span>Produto que ainda não existe no sistema</span><h2 id="new-product-title">Cadastrar novo produto</h2><p>Crie um novo item no catálogo com seus dados comerciais.</p></div><button type="button" className="icon-button" onClick={() => setActiveModal(null)} aria-label="Fechar"><X size={19} /></button></header>
           <form onSubmit={handleSubmit}>
-            <div className="image-field">
-              <label className={form.imageUrl ? 'has-image' : ''}>
-                {form.imageUrl ? <img src={form.imageUrl} alt="Prévia do produto" /> : <><ImagePlus size={21} /><strong>Foto do produto</strong><span>PNG ou JPG, até 5 MB</span></>}
-                <input type="file" accept="image/png,image/jpeg,image/webp" onChange={handleImage} />
-              </label>
-              <div><strong>Imagem opcional</strong><p>Use uma foto quadrada e com fundo neutro para manter o catálogo organizado.</p></div>
-            </div>
+            <div className="stock-explanation"><PackagePlus size={20} /><div><strong>Catálogo e estoque são operações separadas</strong><p>Depois do cadastro, use “Adicionar estoque” para criar o primeiro lote rastreável.</p></div></div>
             <fieldset><legend>Identificação</legend><div className="form-grid">
               <label className="span-2"><span>Nome do produto</span><input required value={form.name} onChange={e => updateField('name', e.target.value)} placeholder="Ex.: Café Especial 500g" /></label>
               <label><span>SKU</span><input required value={form.sku} onChange={e => updateField('sku', e.target.value)} placeholder="CAF-500-01" /></label>
               <label><span>Categoria</span><input required value={form.category} onChange={e => updateField('category', e.target.value)} placeholder="Mercearia" /></label>
             </div></fieldset>
-            <fieldset><legend>Comercial e estoque</legend><div className="form-grid four-columns">
+            <fieldset><legend>Dados comerciais</legend><div className="form-grid four-columns">
               <label><span>Custo unitário</span><div className="money-input"><b>R$</b><input required min="0" step="0.01" type="number" value={form.cost} onChange={e => updateField('cost', e.target.value)} placeholder="0,00" /></div></label>
               <label><span>Preço de venda</span><div className="money-input"><b>R$</b><input required min="0" step="0.01" type="number" value={form.price} onChange={e => updateField('price', e.target.value)} placeholder="0,00" /></div></label>
-              <label><span>Estoque inicial</span><input required min="0" type="number" value={form.stock} onChange={e => updateField('stock', e.target.value)} placeholder="0" /></label>
-              <label><span>Validade do lote</span><input type="date" value={form.expiry} onChange={e => updateField('expiry', e.target.value)} /></label>
               <label><span>Unidades por caixa</span><input min="1" type="number" value={form.packSize} onChange={e => updateField('packSize', e.target.value)} placeholder="12" /></label>
               <label><span>Pedido mínimo</span><input min="0" type="number" value={form.minimumOrder} onChange={e => updateField('minimumOrder', e.target.value)} placeholder="24" /></label>
             </div></fieldset>
-            <footer className="modal-footer"><button type="button" className="secondary-button" onClick={() => setActiveModal(null)}>Cancelar</button><button type="submit" className="primary-button">Cadastrar novo produto</button></footer>
+            {formError && <p className="form-error">{formError}</p>}
+            <footer className="modal-footer"><button type="button" className="secondary-button" onClick={() => setActiveModal(null)}>Cancelar</button><button disabled={submitting} type="submit" className="primary-button">{submitting ? 'Cadastrando…' : 'Cadastrar novo produto'}</button></footer>
           </form>
         </section>
       </div>}
@@ -171,11 +202,30 @@ export function ProductsPage({ products, onProduct, onAddProduct, onAddStock }: 
             <fieldset><legend>Identificação do lote</legend><div className="form-grid">
               <label><span>Número do lote</span><input required value={stockForm.batch} onChange={e => updateStockField('batch', e.target.value)} placeholder="Ex.: LT-2608-030" /></label>
               <label><span>Validade do lote</span><input type="date" value={stockForm.expiry} onChange={e => updateStockField('expiry', e.target.value)} /></label>
-              <label><span>Fornecedor</span><input value={stockForm.supplier} onChange={e => updateStockField('supplier', e.target.value)} placeholder="Nome do fornecedor" /></label>
+              <label><span>Fornecedor</span><input required value={stockForm.supplier} onChange={e => updateStockField('supplier', e.target.value)} placeholder="Nome do fornecedor" /></label>
               <label><span>Nota fiscal</span><input value={stockForm.invoice} onChange={e => updateStockField('invoice', e.target.value)} placeholder="Ex.: NF-18452" /></label>
-              <label><span>Custo unitário deste lote</span><div className="money-input"><b>R$</b><input min="0" step="0.01" type="number" value={stockForm.unitCost} onChange={e => updateStockField('unitCost', e.target.value)} placeholder="0,00" /></div></label>
+              <label><span>Custo unitário deste lote</span><div className="money-input"><b>R$</b><input required min="0" step="0.01" type="number" value={stockForm.unitCost} onChange={e => updateStockField('unitCost', e.target.value)} placeholder="0,00" /></div></label>
             </div></fieldset>
-            <footer className="modal-footer"><button type="button" className="secondary-button" onClick={() => setActiveModal(null)}>Cancelar</button><button type="submit" className="primary-button"><PackagePlus size={16} /> Confirmar entrada de estoque</button></footer>
+            {formError && <p className="form-error">{formError}</p>}
+            <footer className="modal-footer"><button type="button" className="secondary-button" onClick={() => setActiveModal(null)}>Cancelar</button><button disabled={submitting} type="submit" className="primary-button"><PackagePlus size={16} /> {submitting ? 'Registrando…' : 'Confirmar entrada de estoque'}</button></footer>
+          </form>
+        </section>
+      </div>}
+      {activeModal === 'sale' && <div className="modal-layer">
+        <button className="modal-backdrop" aria-label="Fechar formulário" onClick={() => setActiveModal(null)} />
+        <section className="product-modal" role="dialog" aria-modal="true" aria-labelledby="sale-title">
+          <header className="modal-header"><div><span>Saída de estoque por FEFO</span><h2 id="sale-title">Registrar venda</h2><p>O backend consumirá primeiro os lotes vendáveis com validade mais próxima.</p></div><button type="button" className="icon-button" onClick={() => setActiveModal(null)} aria-label="Fechar"><X size={19} /></button></header>
+          <form onSubmit={handleSaleSubmit}>
+            <div className="stock-explanation"><ShoppingCart size={20} /><div><strong>Alocação automática de lotes</strong><p>Lotes vencidos, bloqueados ou dentro da margem de segurança não serão utilizados.</p></div></div>
+            <fieldset><legend>Venda</legend><div className="form-grid">
+              <label className="span-2"><span>Produto</span><select required value={saleForm.productId} onChange={e => setSaleForm(current => ({ ...current, productId: e.target.value }))}><option value="">Selecione um produto</option>{products.map(product => <option key={product.id} value={product.id}>{product.name} · {product.sku} · {product.stock} un.</option>)}</select></label>
+              <label><span>Quantidade</span><input required min="1" type="number" value={saleForm.quantity} onChange={e => setSaleForm(current => ({ ...current, quantity: e.target.value }))} /></label>
+              <label><span>Referência</span><input required value={saleForm.reference} onChange={e => setSaleForm(current => ({ ...current, reference: e.target.value }))} /></label>
+              <label><span>Preço unitário opcional</span><div className="money-input"><b>R$</b><input min="0" step="0.01" type="number" value={saleForm.unitPrice} onChange={e => setSaleForm(current => ({ ...current, unitPrice: e.target.value }))} placeholder="Preço de tabela" /></div></label>
+              <label><span>Responsável</span><input required value={saleForm.actor} onChange={e => setSaleForm(current => ({ ...current, actor: e.target.value }))} /></label>
+            </div></fieldset>
+            {formError && <p className="form-error">{formError}</p>}
+            <footer className="modal-footer"><button type="button" className="secondary-button" onClick={() => setActiveModal(null)}>Cancelar</button><button disabled={submitting} type="submit" className="primary-button"><ShoppingCart size={16} /> {submitting ? 'Registrando…' : 'Confirmar venda'}</button></footer>
           </form>
         </section>
       </div>}

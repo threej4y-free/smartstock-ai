@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Bell, Building2, Check, Cloud, Database, PackageCheck, Save, SlidersHorizontal } from 'lucide-react'
+import type { DataMode } from '../types'
 
 type SettingsTab = 'general' | 'inventory' | 'forecast' | 'alerts' | 'data'
 
@@ -15,20 +16,33 @@ function Toggle({ checked, onChange, label }: { checked: boolean; onChange: (val
   return <button type="button" role="switch" aria-checked={checked} aria-label={label} className={`settings-toggle ${checked ? 'on' : ''}`} onClick={() => onChange(!checked)}><i /></button>
 }
 
-export function SettingsPage() {
+export function SettingsPage({ expirationSafetyDays, dataMode, onUpdateExpirationSafety }: { expirationSafetyDays: number; dataMode: DataMode; onUpdateExpirationSafety: (days: number) => Promise<void> }) {
   const [activeTab, setActiveTab] = useState<SettingsTab>('general')
   const [saved, setSaved] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState('')
   const [settings, setSettings] = useState({
     businessName: 'SmartStock Comércio', storeCode: 'LOJA-SP-01', timezone: 'America/Sao_Paulo', currency: 'BRL', language: 'pt-BR',
-    serviceLevel: '95', reviewPeriod: '7', expirationSafety: '2', defaultLeadTime: '10', negativeStock: false, fefo: true, blockExpired: true,
+    serviceLevel: '95', reviewPeriod: '7', expirationSafety: String(expirationSafetyDays), defaultLeadTime: '10', negativeStock: false, fefo: true, blockExpired: true,
     forecastHorizon: '28', retraining: 'weekly', minimumHistory: '90', includeEvents: true, includePrices: true, automaticForecast: true,
     emailAlerts: true, dailyDigest: true, stockoutAlert: true, expirationAlert: true, overstockAlert: true, lowConfidenceAlert: true, email: 'operacao@smartstock.com.br',
   })
   const set = <K extends keyof typeof settings>(key: K, value: typeof settings[K]) => setSettings(current => ({ ...current, [key]: value }))
-  const save = () => { setSaved(true); window.setTimeout(() => setSaved(false), 2800) }
+  const save = async () => {
+    setSaving(true); setSaveError('')
+    try {
+      await onUpdateExpirationSafety(Number(settings.expirationSafety))
+      setSaved(true)
+      window.setTimeout(() => setSaved(false), 2800)
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : 'Não foi possível salvar a política.')
+    } finally {
+      setSaving(false)
+    }
+  }
 
   return <div className="page-content settings-page">
-    <div className="intro-row"><div><p>Defina regras que afetam previsões, recomendações de compra e alertas.</p></div><button className="primary-button" onClick={save}>{saved ? <Check size={16} /> : <Save size={16} />}{saved ? 'Alterações salvas' : 'Salvar alterações'}</button></div>
+    <div className="intro-row"><div><p>Defina regras que afetam previsões, recomendações de compra e alertas.</p>{saveError && <small className="form-error">{saveError}</small>}</div><button className="primary-button" disabled={saving} onClick={save}>{saved ? <Check size={16} /> : <Save size={16} />}{saving ? 'Salvando…' : saved ? 'Alterações salvas' : 'Salvar alterações'}</button></div>
     <div className="settings-layout">
       <aside className="settings-nav" aria-label="Seções de configurações">{tabs.map(tab => { const Icon = tab.icon; return <button key={tab.id} className={activeTab === tab.id ? 'active' : ''} onClick={() => setActiveTab(tab.id)}><Icon size={16} /><span>{tab.label}</span></button> })}</aside>
       <section className="panel settings-panel">
@@ -89,11 +103,11 @@ export function SettingsPage() {
         {activeTab === 'data' && <div className="settings-section">
           <header><span>Fontes externas</span><h2>Dados e integrações</h2><p>Acompanhe as conexões usadas para alimentar vendas, produtos e previsões.</p></header>
           <div className="integration-list">
-            <article><span className="integration-icon"><Database size={18} /></span><div><strong>Banco de dados principal</strong><small>Dados demonstrativos locais</small></div><span className="integration-status demo">Demonstração</span><button>Configurar</button></article>
+            <article><span className="integration-icon"><Database size={18} /></span><div><strong>Banco de dados principal</strong><small>{dataMode === 'api' ? 'FastAPI e PostgreSQL conectados' : 'Dados demonstrativos em memória'}</small></div><span className={`integration-status ${dataMode === 'api' ? 'connected' : 'demo'}`}>{dataMode === 'api' ? 'Conectado' : 'Demonstração'}</span><button>Configurar</button></article>
             <article><span className="integration-icon"><Cloud size={18} /></span><div><strong>Base M5 Forecasting</strong><small>Nenhum conjunto de dados importado</small></div><span className="integration-status offline">Não conectado</span><button>Importar dados</button></article>
             <article><span className="integration-icon"><Cloud size={18} /></span><div><strong>Sistema de vendas</strong><small>Integração via API ou arquivo CSV</small></div><span className="integration-status offline">Não conectado</span><button>Conectar</button></article>
           </div>
-          <div className="settings-info"><Database size={16} /><p>Os dados demonstrativos não representam desempenho real. Conecte uma fonte de vendas com histórico suficiente antes de usar as recomendações em produção.</p></div>
+          <div className="settings-info"><Database size={16} /><p>{dataMode === 'api' ? 'Produtos, lotes, movimentos e políticas são persistidos pela API. Previsões continuam demonstrativas até a conexão do pipeline de ML.' : 'Os dados demonstrativos não representam desempenho real. Use VITE_DATA_MODE=api para exigir a conexão com o backend.'}</p></div>
         </div>}
       </section>
     </div>

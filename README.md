@@ -72,20 +72,21 @@ is not stored as a duplicated total: it is derived from inventory lots.
 - Unique-constraint races are returned as structured `409 Conflict` responses
 - Products, suppliers, lots, movements and sales are exposed under `/api/v1`
 
-The frontend still uses demonstration data while the API integration is developed. It must not
-write a second inventory balance when that integration is added.
+The React application uses this API as its operational source. Product balances are read from the
+lot-derived fields returned by FastAPI; the browser does not maintain a second inventory total.
+An isolated in-memory demo adapter remains available for portfolio previews.
 
 ### Implementation status
 
 | Area | Status |
 | --- | --- |
-| Responsive frontend prototype | Implemented with demonstration data |
+| Responsive frontend | Connected to the API with demo fallback |
 | Product and supplier persistence | Implemented in PostgreSQL |
 | Lot receipts and movement ledger | Implemented and tested |
 | FEFO allocation and expired-lot blocking | Implemented and tested |
 | Expiration safety policy | Persisted and enforced by the backend |
 | PostgreSQL concurrency tests | Automated in GitHub Actions |
-| Frontend/API integration | Pending |
+| Frontend/API integration | Products, receipts, lots, movements, sales and policy connected |
 | Demand forecasting and P10/P50/P90 model | Pending |
 | Replenishment and expiration-risk engine | Pending |
 
@@ -113,6 +114,26 @@ npm run dev
 ```
 
 Open `http://localhost:5173`.
+
+### Frontend data modes
+
+Copy `.env.example` to `.env` when you need to override the defaults:
+
+```dotenv
+VITE_DATA_MODE=auto
+VITE_API_URL=http://127.0.0.1:8000/api/v1
+```
+
+| Mode | Behavior |
+| --- | --- |
+| `api` | Requires FastAPI; connection errors are shown and never replaced with demo data |
+| `demo` | Uses the isolated in-memory adapter and never contacts the API |
+| `auto` | Uses FastAPI when available and activates demo mode only when initial connection fails |
+
+In API mode, catalog registration calls `POST /products`, receipts call
+`POST /inventory/receipts`, sales call `POST /sales`, and the interface reloads products, lots and
+movements from the backend after every successful operation. The expiration margin is read and
+updated through `/inventory/policy`.
 
 ### Run the API and PostgreSQL
 
@@ -163,7 +184,9 @@ Forecast results are represented as:
 - **P50:** most likely demand scenario, used as the central planning reference
 - **P90:** high-demand scenario, used for stockout-risk analysis
 
-The current frontend uses demonstration data from `src/data.ts`. It does not claim real model accuracy or production performance. Real forecasts require a trained model, historical data, and the backend API.
+The forecasting chart and demo adapter use clearly identified demonstration values from
+`src/data.ts`. Operational inventory data comes from the selected data source. Real forecasts
+still require a trained model, historical data and persisted prediction endpoints.
 
 ## Inventory logic
 
@@ -173,14 +196,13 @@ Purchase recommendations are expected to consider inventory position, incoming o
 
 ## Administration and access control
 
-The current version runs as **SmartStock Demo** in an **Ambiente local**. It intentionally does not present a fictional authenticated user.
+The current version can run against the local API or as **SmartStock Demo**. It intentionally does not present a fictional authenticated user.
 
 Authentication, user management, role-based permissions, multi-company tenancy, and a separate administrative panel are outside the current frontend scope. They should be introduced only when the backend supports secure sessions, audit logs, companies, stores, teams, and access-control policies.
 
 ## Current limitations
 
-- The frontend still reads demonstration data instead of the API
-- Settings persist only during the active browser session
+- Settings other than the expiration safety margin persist only during the active browser session
 - Integrations and purchase actions are interface demonstrations
 - Forecast values do not come from a trained production model
 - Reservation, release, adjustment and loss commands are not exposed through the API yet
@@ -188,13 +210,12 @@ Authentication, user management, role-based permissions, multi-company tenancy, 
 
 ## Next steps
 
-1. Connect the React interface to the API and remove duplicated inventory state from the frontend
-2. Add reservation, release, adjustment and loss commands with the same transactional guarantees
-3. Add frontend component and end-to-end tests to the existing CI workflow
-4. Add the M5 data ingestion and temporal-validation pipeline
-5. Train baselines and a validated P10/P50/P90 forecasting model
-6. Build replenishment, excess and expiration recommendations from persisted data
-7. Introduce authentication, authorization and multi-company administration when required
+1. Add reservation, release, adjustment and loss commands with the same transactional guarantees
+2. Add frontend component and end-to-end tests to the existing CI workflow
+3. Add the M5 data ingestion and temporal-validation pipeline
+4. Train baselines and a validated P10/P50/P90 forecasting model
+5. Build replenishment, excess and expiration recommendations from persisted data
+6. Introduce authentication, authorization and multi-company administration when required
 
 ## Disclaimer
 

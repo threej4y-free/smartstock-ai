@@ -1,34 +1,51 @@
 import { useMemo, useState } from 'react'
 import { ArrowDownLeft, ArrowUpRight, Download, Filter, RotateCcw, Search, ShieldMinus } from 'lucide-react'
-import type { Product } from '../types'
+import type { InventoryLot, Product, StockMovement, StockMovementType } from '../types'
 
-type MovementType = 'Entrada' | 'Venda' | 'Ajuste' | 'Reserva' | 'Perda'
-const movements = [
-  { id: 'MOV-8421', date: '27 ago 2026 · 14:32', productId: 'prod-001', type: 'Venda' as MovementType, quantity: -3, lot: 'LT-2608-014', reason: 'Venda PDV', reference: 'VEN-98421', user: 'Sistema' },
-  { id: 'MOV-8420', date: '27 ago 2026 · 13:18', productId: 'prod-007', type: 'Entrada' as MovementType, quantity: 96, lot: 'LT-2608-031', reason: 'Recebimento de compra', reference: 'PC-2026-0182', user: 'Marina Costa' },
-  { id: 'MOV-8419', date: '27 ago 2026 · 11:47', productId: 'prod-004', type: 'Perda' as MovementType, quantity: -4, lot: 'LT-2607-088', reason: 'Avaria na embalagem', reference: 'AJ-1840', user: 'Rafael Lima' },
-  { id: 'MOV-8418', date: '27 ago 2026 · 10:22', productId: 'prod-002', type: 'Reserva' as MovementType, quantity: -8, lot: 'LT-2608-022', reason: 'Separação de pedido', reference: 'PED-3018', user: 'Sistema' },
-  { id: 'MOV-8417', date: '27 ago 2026 · 09:06', productId: 'prod-006', type: 'Venda' as MovementType, quantity: -5, lot: 'LT-2608-016', reason: 'Venda e-commerce', reference: 'VEN-98413', user: 'Sistema' },
-  { id: 'MOV-8416', date: '26 ago 2026 · 17:54', productId: 'prod-003', type: 'Ajuste' as MovementType, quantity: 2, lot: 'LT-2607-071', reason: 'Correção de inventário', reference: 'INV-0826', user: 'Marina Costa' },
-  { id: 'MOV-8415', date: '26 ago 2026 · 16:40', productId: 'prod-005', type: 'Entrada' as MovementType, quantity: 24, lot: 'LT-2608-028', reason: 'Recebimento de compra', reference: 'PC-2026-0181', user: 'Rafael Lima' },
-  { id: 'MOV-8414', date: '26 ago 2026 · 15:12', productId: 'prod-008', type: 'Venda' as MovementType, quantity: -2, lot: 'LT-2607-095', reason: 'Venda PDV', reference: 'VEN-98396', user: 'Sistema' },
-]
+const movementMeta: Record<StockMovementType, { label: string; icon: typeof ArrowDownLeft }> = {
+  receipt: { label: 'Entrada', icon: ArrowDownLeft },
+  sale: { label: 'Venda', icon: ArrowUpRight },
+  adjustment: { label: 'Ajuste', icon: RotateCcw },
+  reservation: { label: 'Reserva', icon: ShieldMinus },
+  release: { label: 'Liberação', icon: RotateCcw },
+  loss: { label: 'Perda', icon: ShieldMinus },
+}
 
-const movementIcon = { Entrada: ArrowDownLeft, Venda: ArrowUpRight, Ajuste: RotateCcw, Reserva: ShieldMinus, Perda: ShieldMinus }
+const filters = [
+  { value: 'all', label: 'Todos' },
+  { value: 'receipt', label: 'Entrada' },
+  { value: 'sale', label: 'Venda' },
+  { value: 'adjustment', label: 'Ajuste' },
+  { value: 'reservation', label: 'Reserva' },
+  { value: 'loss', label: 'Perda' },
+] as const
 
-export function MovementsPage({ products }: { products: Product[] }) {
+function formatDate(value: string): string {
+  return new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(value))
+}
+
+export function MovementsPage({ products, lots, movements }: { products: Product[]; lots: InventoryLot[]; movements: StockMovement[] }) {
   const [query, setQuery] = useState('')
-  const [type, setType] = useState<MovementType | 'Todos'>('Todos')
-  const filtered = useMemo(() => movements.filter(movement => { const product = products.find(item => item.id === movement.productId); return `${product?.name} ${product?.sku} ${movement.reference} ${movement.lot}`.toLowerCase().includes(query.toLowerCase()) && (type === 'Todos' || movement.type === type) }), [products, query, type])
+  const [type, setType] = useState<(typeof filters)[number]['value']>('all')
+  const filtered = useMemo(() => movements.filter(movement => {
+    const product = products.find(item => item.id === movement.productId)
+    const lot = lots.find(item => item.id === movement.lotId)
+    return `${product?.name} ${product?.sku} ${movement.reference} ${lot?.batchNumber}`.toLowerCase().includes(query.toLowerCase()) && (type === 'all' || movement.movementType === type)
+  }), [lots, movements, products, query, type])
+  const today = new Date().toISOString().slice(0, 10)
+  const todayMovements = movements.filter(movement => movement.occurredAt.slice(0, 10) === today)
+  const entries = todayMovements.filter(item => item.movementType === 'receipt').reduce((sum, item) => sum + item.quantity, 0)
+  const outputs = Math.abs(todayMovements.filter(item => item.quantity < 0).reduce((sum, item) => sum + item.quantity, 0))
+  const adjustments = movements.filter(item => item.movementType === 'adjustment').length
   return <div className="page-content movements-page">
     <div className="intro-row"><div><p>Rastreie toda alteração de quantidade com lote, origem e responsável.</p></div><button className="secondary-button"><Download size={15} /> Exportar histórico</button></div>
-    <section className="movement-summary"><div><span>Entradas hoje</span><strong>120 un.</strong><small>2 recebimentos</small></div><div><span>Saídas hoje</span><strong>22 un.</strong><small>vendas, reservas e perdas</small></div><div><span>Saldo do dia</span><strong>+98 un.</strong><small>posição líquida</small></div><div><span>Ajustes no mês</span><strong>7</strong><small>0,16% do estoque</small></div></section>
+    <section className="movement-summary"><div><span>Entradas hoje</span><strong>{entries} un.</strong><small>{todayMovements.filter(item => item.movementType === 'receipt').length} recebimentos</small></div><div><span>Saídas hoje</span><strong>{outputs} un.</strong><small>vendas, reservas e perdas</small></div><div><span>Saldo do dia</span><strong>{entries - outputs >= 0 ? '+' : ''}{entries - outputs} un.</strong><small>posição líquida</small></div><div><span>Ajustes registrados</span><strong>{adjustments}</strong><small>no histórico carregado</small></div></section>
     <section className="panel movements-panel">
-      <div className="table-toolbar"><label className="table-search movement-search"><Search size={16} /><input value={query} onChange={e => setQuery(e.target.value)} placeholder="Produto, SKU, lote ou referência" /></label><div className="filter-group"><Filter size={15} /><span>Tipo</span>{(['Todos', 'Entrada', 'Venda', 'Ajuste', 'Reserva', 'Perda'] as const).map(option => <button key={option} className={type === option ? 'selected' : ''} onClick={() => setType(option)}>{option}</button>)}</div></div>
+      <div className="table-toolbar"><label className="table-search movement-search"><Search size={16} /><input value={query} onChange={e => setQuery(e.target.value)} placeholder="Produto, SKU, lote ou referência" /></label><div className="filter-group"><Filter size={15} /><span>Tipo</span>{filters.map(option => <button key={option.value} className={type === option.value ? 'selected' : ''} onClick={() => setType(option.value)}>{option.label}</button>)}</div></div>
       <div className="movement-table-head"><span>Movimentação</span><span>Produto</span><span>Tipo</span><span>Quantidade</span><span>Lote</span><span>Motivo</span><span>Referência</span><span>Responsável</span></div>
-      {filtered.map(movement => { const product = products.find(item => item.id === movement.productId); const Icon = movementIcon[movement.type]; return <div className="movement-row" key={movement.id}><span><strong>{movement.id}</strong><small>{movement.date}</small></span><span className="product-cell"><i>{product?.name.slice(0, 1) || '?'}</i><span><strong>{product?.name || 'Produto removido'}</strong><small>{product?.sku}</small></span></span><span className={`movement-type ${movement.type.toLowerCase()}`}><Icon size={13} />{movement.type}</span><strong className={movement.quantity > 0 ? 'quantity-positive' : 'quantity-negative'}>{movement.quantity > 0 ? '+' : ''}{movement.quantity} un.</strong><span>{movement.lot}</span><span>{movement.reason}</span><span>{movement.reference}</span><span>{movement.user}</span></div> })}
+      {filtered.map(movement => { const product = products.find(item => item.id === movement.productId); const lot = lots.find(item => item.id === movement.lotId); const meta = movementMeta[movement.movementType]; const Icon = meta.icon; return <div className="movement-row" key={movement.id}><span><strong>{movement.id.slice(0, 12)}</strong><small>{formatDate(movement.occurredAt)}</small></span><span className="product-cell"><i>{product?.name.slice(0, 1) || '?'}</i><span><strong>{product?.name || 'Produto removido'}</strong><small>{product?.sku}</small></span></span><span className={`movement-type ${meta.label.toLowerCase()}`}><Icon size={13} />{meta.label}</span><strong className={movement.quantity > 0 ? 'quantity-positive' : 'quantity-negative'}>{movement.quantity > 0 ? '+' : ''}{movement.quantity} un.</strong><span>{lot?.batchNumber || movement.lotId.slice(0, 8)}</span><span>{movement.reason}</span><span>{movement.reference || '—'}</span><span>{movement.actor}</span></div> })}
       {!filtered.length && <div className="empty-state">Nenhuma movimentação encontrada.</div>}
-      <footer className="table-footer"><span>Exibindo {filtered.length} movimentações recentes</span></footer>
+      <footer className="table-footer"><span>Exibindo {filtered.length} movimentações</span></footer>
     </section>
   </div>
 }
