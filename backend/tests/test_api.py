@@ -76,3 +76,29 @@ def test_sale_endpoint_returns_structured_insufficient_stock_error(client):
 
     assert response.status_code == 409
     assert response.json()["error"]["code"] == "insufficient_stock"
+
+
+def test_integrity_error_is_returned_as_structured_conflict(client):
+    first = client.post("/api/v1/suppliers", json={"name": "Supplier One", "tax_id": "123"})
+    duplicate_tax_id = client.post(
+        "/api/v1/suppliers", json={"name": "Supplier Two", "tax_id": "123"}
+    )
+
+    assert first.status_code == 201
+    assert duplicate_tax_id.status_code == 409
+    assert duplicate_tax_id.json()["error"] == {
+        "code": "integrity_conflict",
+        "message": "A resource with the same unique key already exists",
+    }
+
+
+def test_inventory_policy_is_configurable(client):
+    initial = client.get("/api/v1/inventory/policy")
+    updated = client.put("/api/v1/inventory/policy", json={"expiration_safety_days": 5})
+    current = client.get("/api/v1/inventory/policy")
+
+    assert initial.status_code == 200
+    assert initial.json()["expiration_safety_days"] == 2
+    assert updated.status_code == 200
+    assert updated.json()["expiration_safety_days"] == 5
+    assert current.json()["expiration_safety_days"] == 5

@@ -6,7 +6,7 @@ from sqlalchemy import create_engine, event
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.database import Base, get_db
+from app.database import Base, get_db, transactional_session
 from app.main import create_app
 
 
@@ -43,13 +43,7 @@ def client(session_factory) -> Generator[TestClient, None, None]:
     application = create_app()
 
     def test_db():
-        with session_factory() as session:
-            try:
-                yield session
-                session.commit()
-            except Exception:
-                session.rollback()
-                raise
+        yield from transactional_session(session_factory)
 
     application.dependency_overrides[get_db] = test_db
     with TestClient(application) as test_client:

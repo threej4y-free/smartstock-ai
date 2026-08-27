@@ -2,15 +2,17 @@ from __future__ import annotations
 
 import uuid
 from collections import defaultdict
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
-from sqlalchemy import case, func, or_, select
+from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.orm import Session
 
+from app.config import get_settings
 from app.errors import ConflictError, InsufficientStockError, NotFoundError
 from app.models import (
     InventoryLot,
+    InventoryPolicy,
     MovementType,
     Product,
     Sale,
@@ -118,14 +120,36 @@ def receive_stock(
     return lot
 
 
-def _eligible_lots_statement(product_id: uuid.UUID, on_date: date):
+def get_expiration_safety_days(session: Session) -> int:
+    configured = session.scalar(
+        select(InventoryPolicy.expiration_safety_days).where(InventoryPolicy.id == 1)
+    )
+    return int(configured if configured is not None else get_settings().expiration_safety_days)
+
+
+def update_inventory_policy(session: Session, expiration_safety_days: int) -> InventoryPolicy:
+    policy = session.get(InventoryPolicy, 1)
+    if policy is None:
+        policy = InventoryPolicy(id=1, expiration_safety_days=expiration_safety_days)
+        session.add(policy)
+    else:
+        policy.expiration_safety_days = expiration_safety_days
+    session.flush()
+    return policy
+
+
+def _eligible_lots_statement(product_id: uuid.UUID, on_date: date, expiration_safety_days: int):
+    minimum_expiration = on_date + timedelta(days=expiration_safety_days)
     return (
         select(InventoryLot)
         .where(
             InventoryLot.product_id == product_id,
             InventoryLot.quantity_available > 0,
             InventoryLot.blocked_at.is_(None),
-            or_(InventoryLot.expires_at.is_(None), InventoryLot.expires_at >= on_date),
+            or_(
+                InventoryLot.expires_at.is_(None),
+                InventoryLot.expires_at >= minimum_expiration,
+            ),
         )
         .order_by(
             case((InventoryLot.expires_at.is_(None), 1), else_=0),
@@ -138,11 +162,21 @@ def _eligible_lots_statement(product_id: uuid.UUID, on_date: date):
 
 
 def allocate_fefo(
-    session: Session, product_id: uuid.UUID, quantity: int, *, on_date: date
+    session: Session,
+    product_id: uuid.UUID,
+    quantity: int,
+    *,
+    on_date: date,
+    expiration_safety_days: int | None = None,
 ) -> list[tuple[InventoryLot, int]]:
     if quantity <= 0:
         raise ValueError("quantity must be positive")
-    lots = list(session.scalars(_eligible_lots_statement(product_id, on_date)))
+    safety_days = (
+        expiration_safety_days
+        if expiration_safety_days is not None
+        else get_expiration_safety_days(session)
+    )
+    lots = list(session.scalars(_eligible_lots_statement(product_id, on_date, safety_days)))
     total_available = sum(lot.quantity_available for lot in lots)
     if total_available < quantity:
         raise InsufficientStockError(
@@ -181,14 +215,22 @@ def create_sale(session: Session, payload: SaleCreate) -> Sale:
     if sold_at.tzinfo is None:
         sold_at = sold_at.replace(tzinfo=UTC)
 
+    safety_days = get_expiration_safety_days(session)
     planned_allocations: list[tuple[Product, Decimal, int, list[tuple[InventoryLot, int]]]] = []
-    for product_id, line in grouped.items():
+    for product_id, line in sorted(grouped.items(), key=lambda item: item[0].hex):
         product = session.get(Product, product_id)
         if not product or not product.active:
             raise NotFoundError(f"Active product {product_id} not found")
         quantity = int(line["quantity"])
-        unit_price = line["unit_price"] or product.list_price
-        allocations = allocate_fefo(session, product_id, quantity, on_date=sold_at.date())
+        requested_price = line["unit_price"]
+        unit_price = requested_price if requested_price is not None else product.list_price
+        allocations = allocate_fefo(
+            session,
+            product_id,
+            quantity,
+            on_date=sold_at.date(),
+            expiration_safety_days=safety_days,
+        )
         planned_allocations.append((product, unit_price, quantity, allocations))
 
     sale = Sale(reference=payload.reference.strip(), sold_at=sold_at)
@@ -225,36 +267,103 @@ def create_sale(session: Session, payload: SaleCreate) -> Sale:
 
 
 def product_stock_summary(
-    session: Session, product_id: uuid.UUID, *, on_date: date | None = None
+    session: Session,
+    product_id: uuid.UUID,
+    *,
+    on_date: date | None = None,
+    expiration_safety_days: int | None = None,
 ) -> dict[str, int | date | None]:
+    return product_stock_summaries(
+        session,
+        [product_id],
+        on_date=on_date,
+        expiration_safety_days=expiration_safety_days,
+    )[product_id]
+
+
+def product_stock_summaries(
+    session: Session,
+    product_ids: list[uuid.UUID],
+    *,
+    on_date: date | None = None,
+    expiration_safety_days: int | None = None,
+) -> dict[uuid.UUID, dict[str, int | date | None]]:
+    if not product_ids:
+        return {}
     reference_day = on_date or date.today()
-    lots = list(session.scalars(select(InventoryLot).where(InventoryLot.product_id == product_id)))
-    physical = sum(lot.quantity_available + lot.quantity_reserved for lot in lots)
-    reserved = sum(lot.quantity_reserved for lot in lots)
-    eligible = [
-        lot
-        for lot in lots
-        if lot.blocked_at is None and (lot.expires_at is None or lot.expires_at >= reference_day)
-    ]
-    available = sum(lot.quantity_available for lot in eligible)
-    expirations = [lot.expires_at for lot in eligible if lot.expires_at is not None]
-    return {
-        "available_stock": available,
-        "reserved_stock": reserved,
-        "physical_stock": physical,
-        "next_expiration": min(expirations) if expirations else None,
+    safety_days = (
+        expiration_safety_days
+        if expiration_safety_days is not None
+        else get_expiration_safety_days(session)
+    )
+    minimum_expiration = reference_day + timedelta(days=safety_days)
+    eligible = and_(
+        InventoryLot.blocked_at.is_(None),
+        or_(
+            InventoryLot.expires_at.is_(None),
+            InventoryLot.expires_at >= minimum_expiration,
+        ),
+    )
+    rows = session.execute(
+        select(
+            InventoryLot.product_id,
+            func.coalesce(
+                func.sum(InventoryLot.quantity_available + InventoryLot.quantity_reserved), 0
+            ).label("physical_stock"),
+            func.coalesce(func.sum(InventoryLot.quantity_reserved), 0).label("reserved_stock"),
+            func.coalesce(
+                func.sum(case((eligible, InventoryLot.quantity_available), else_=0)), 0
+            ).label("available_stock"),
+            func.min(
+                case(
+                    (and_(eligible, InventoryLot.expires_at.is_not(None)), InventoryLot.expires_at)
+                )
+            ).label("next_expiration"),
+        )
+        .where(InventoryLot.product_id.in_(product_ids))
+        .group_by(InventoryLot.product_id)
+    )
+    summaries = {
+        product_id: {
+            "available_stock": 0,
+            "reserved_stock": 0,
+            "physical_stock": 0,
+            "next_expiration": None,
+        }
+        for product_id in product_ids
     }
+    for row in rows:
+        summaries[row.product_id] = {
+            "available_stock": int(row.available_stock),
+            "reserved_stock": int(row.reserved_stock),
+            "physical_stock": int(row.physical_stock),
+            "next_expiration": row.next_expiration,
+        }
+    return summaries
 
 
-def lot_operational_fields(lot: InventoryLot, *, on_date: date | None = None) -> dict[str, object]:
+def lot_operational_fields(
+    lot: InventoryLot,
+    *,
+    on_date: date | None = None,
+    expiration_safety_days: int | None = None,
+) -> dict[str, object]:
     reference_day = on_date or date.today()
+    safety_days = (
+        expiration_safety_days
+        if expiration_safety_days is not None
+        else get_settings().expiration_safety_days
+    )
     days = (lot.expires_at - reference_day).days if lot.expires_at else None
     expired = days is not None and days < 0
     blocked = lot.blocked_at is not None
+    inside_safety_window = days is not None and days < safety_days
     if blocked:
         status = "blocked"
     elif expired:
         status = "expired"
+    elif inside_safety_window:
+        status = "expiration_safety_window"
     elif days is not None and days <= 7:
         status = "expires_in_7_days"
     elif days is not None and days <= 15:
@@ -262,7 +371,9 @@ def lot_operational_fields(lot: InventoryLot, *, on_date: date | None = None) ->
     else:
         status = "healthy"
     return {
-        "sellable_quantity": 0 if blocked or expired else lot.quantity_available,
+        "sellable_quantity": (
+            0 if blocked or expired or inside_safety_window else lot.quantity_available
+        ),
         "status": status,
         "days_to_expiry": days,
     }

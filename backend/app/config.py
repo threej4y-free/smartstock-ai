@@ -1,5 +1,6 @@
 from functools import lru_cache
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -9,6 +10,7 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+psycopg://smartstock:smartstock@localhost:5432/smartstock"
     cors_origins: list[str] = ["http://localhost:5173", "http://127.0.0.1:5173"]
     sql_echo: bool = False
+    expiration_safety_days: int = Field(default=2, ge=0)
 
     model_config = SettingsConfigDict(
         env_file=".env",

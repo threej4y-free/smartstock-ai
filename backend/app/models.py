@@ -96,6 +96,28 @@ class Supplier(TimestampMixin, Base):
     lots: Mapped[list[InventoryLot]] = relationship(back_populates="supplier")
 
 
+class InventoryPolicy(Base):
+    __tablename__ = "inventory_policy"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
+    expiration_safety_days: Mapped[int] = mapped_column(Integer, default=2, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+        onupdate=utcnow,
+        server_default=func.now(),
+        nullable=False,
+    )
+
+    __table_args__ = (
+        CheckConstraint("id = 1", name="ck_inventory_policy_singleton"),
+        CheckConstraint(
+            "expiration_safety_days >= 0",
+            name="ck_inventory_policy_expiration_safety_nonnegative",
+        ),
+    )
+
+
 class InventoryLot(TimestampMixin, Base):
     __tablename__ = "inventory_lots"
 

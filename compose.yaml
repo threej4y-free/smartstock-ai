@@ -20,6 +20,7 @@ services:
     environment:
       SMARTSTOCK_DATABASE_URL: postgresql+psycopg://smartstock:smartstock@db:5432/smartstock
       SMARTSTOCK_CORS_ORIGINS: '["http://localhost:5173","http://127.0.0.1:5173"]'
+      SMARTSTOCK_EXPIRATION_SAFETY_DAYS: "2"
     ports:
       - "8000:8000"
     depends_on:

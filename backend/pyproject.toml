@@ -26,6 +26,9 @@ test = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+markers = [
+  "postgres: integration tests that require a PostgreSQL test database",
+]
 
 [tool.ruff]
 target-version = "py312"

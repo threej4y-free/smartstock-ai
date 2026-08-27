@@ -17,5 +17,9 @@ class ConflictError(DomainError):
     code = "conflict"
 
 
+class IntegrityConflictError(ConflictError):
+    code = "integrity_conflict"
+
+
 class InsufficientStockError(ConflictError):
     code = "insufficient_stock"

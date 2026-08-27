@@ -6,24 +6,59 @@ from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy import case, select
 from sqlalchemy.orm import Session
 
+from app.config import get_settings
 from app.database import get_db
-from app.models import InventoryLot, StockMovement
-from app.schemas import InventoryLotRead, StockMovementRead, StockReceiptCreate
-from app.services.inventory import lot_operational_fields, receive_stock
+from app.models import InventoryLot, InventoryPolicy, StockMovement
+from app.schemas import (
+    InventoryLotRead,
+    InventoryPolicyRead,
+    InventoryPolicyUpdate,
+    StockMovementRead,
+    StockReceiptCreate,
+)
+from app.services.inventory import (
+    get_expiration_safety_days,
+    lot_operational_fields,
+    receive_stock,
+    update_inventory_policy,
+)
 
 router = APIRouter(prefix="/inventory", tags=["inventory"])
 DbSession = Annotated[Session, Depends(get_db)]
 
 
-def _read_lot(lot: InventoryLot, on_date: date | None = None) -> InventoryLotRead:
+def _read_lot(
+    lot: InventoryLot, on_date: date | None = None, expiration_safety_days: int | None = None
+) -> InventoryLotRead:
     return InventoryLotRead.model_validate(
-        {**lot.__dict__, **lot_operational_fields(lot, on_date=on_date)}
+        {
+            **lot.__dict__,
+            **lot_operational_fields(
+                lot,
+                on_date=on_date,
+                expiration_safety_days=expiration_safety_days,
+            ),
+        }
     )
 
 
 @router.post("/receipts", response_model=InventoryLotRead, status_code=status.HTTP_201_CREATED)
 def post_receipt(payload: StockReceiptCreate, db: DbSession) -> InventoryLotRead:
-    return _read_lot(receive_stock(db, payload))
+    safety_days = get_expiration_safety_days(db)
+    return _read_lot(receive_stock(db, payload), expiration_safety_days=safety_days)
+
+
+@router.get("/policy", response_model=InventoryPolicyRead)
+def get_policy(db: DbSession) -> InventoryPolicyRead:
+    policy = db.get(InventoryPolicy, 1)
+    if policy:
+        return InventoryPolicyRead.model_validate(policy)
+    return InventoryPolicyRead(expiration_safety_days=get_settings().expiration_safety_days)
+
+
+@router.put("/policy", response_model=InventoryPolicyRead)
+def put_policy(payload: InventoryPolicyUpdate, db: DbSession) -> InventoryPolicy:
+    return update_inventory_policy(db, payload.expiration_safety_days)
 
 
 @router.get("/lots", response_model=list[InventoryLotRead])
@@ -48,7 +83,8 @@ def get_lots(
         InventoryLot.received_at.asc(),
     )
     lots = db.scalars(statement.limit(limit).offset(offset)).all()
-    return [_read_lot(lot) for lot in lots]
+    safety_days = get_expiration_safety_days(db)
+    return [_read_lot(lot, expiration_safety_days=safety_days) for lot in lots]
 
 
 @router.get("/movements", response_model=list[StockMovementRead])

@@ -1,5 +1,7 @@
 # SmartStock
 
+[![CI](https://github.com/threej4y-free/smartstock-ai/actions/workflows/ci.yml/badge.svg)](https://github.com/threej4y-free/smartstock-ai/actions/workflows/ci.yml)
+
 > A portfolio case study for demand forecasting and intelligent inventory management.
 
 SmartStock is a responsive operations dashboard designed to help retail teams understand demand, prevent stockouts, reduce excess inventory, and prioritize perishable lots using FEFO (First Expired, First Out).
@@ -63,11 +65,29 @@ is not stored as a duplicated total: it is derived from inventory lots.
 - Every lot keeps its supplier, invoice, receipt date, expiration, unit cost and location
 - Available and reserved quantities are constrained at database level
 - Sales allocate valid, unblocked inventory using FEFO and may span multiple lots
+- Multi-product sales acquire lot locks in deterministic product order to avoid deadlocks
+- Explicit zero-value sale prices are preserved for samples and promotional items
 - Expired or manually blocked lots remain auditable but contribute zero sellable units
+- The expiration safety margin is persisted in PostgreSQL and enforced by stock queries and FEFO
+- Unique-constraint races are returned as structured `409 Conflict` responses
 - Products, suppliers, lots, movements and sales are exposed under `/api/v1`
 
 The frontend still uses demonstration data while the API integration is developed. It must not
 write a second inventory balance when that integration is added.
+
+### Implementation status
+
+| Area | Status |
+| --- | --- |
+| Responsive frontend prototype | Implemented with demonstration data |
+| Product and supplier persistence | Implemented in PostgreSQL |
+| Lot receipts and movement ledger | Implemented and tested |
+| FEFO allocation and expired-lot blocking | Implemented and tested |
+| Expiration safety policy | Persisted and enforced by the backend |
+| PostgreSQL concurrency tests | Automated in GitHub Actions |
+| Frontend/API integration | Pending |
+| Demand forecasting and P10/P50/P90 model | Pending |
+| Replenishment and expiration-risk engine | Pending |
 
 ### API surface
 
@@ -77,6 +97,7 @@ write a second inventory balance when that integration is added.
 | `GET` | `/api/v1/products/{product_id}` | Return a product with stock derived from lots |
 | `GET`, `POST` | `/api/v1/suppliers` | List and register suppliers |
 | `POST` | `/api/v1/inventory/receipts` | Receive stock and create a lot plus movement |
+| `GET`, `PUT` | `/api/v1/inventory/policy` | Read or change the expiration safety margin |
 | `GET` | `/api/v1/inventory/lots` | List lots in FEFO order |
 | `GET` | `/api/v1/inventory/movements` | Return the auditable inventory ledger |
 | `POST` | `/api/v1/sales` | Register a sale and allocate stock through FEFO |
@@ -128,7 +149,9 @@ pytest
 
 All frontend and backend checks must pass before a production deployment. The backend suite
 currently covers receipts, lot traceability, database constraints, FEFO allocation, expired-lot
-blocking and insufficient-stock errors.
+blocking, safety margins, zero-value prices and insufficient-stock errors. GitHub Actions also
+starts PostgreSQL, applies every Alembic migration and runs concurrent integration tests against
+the real database engine.
 
 ## Forecasting concept
 
@@ -161,14 +184,13 @@ Authentication, user management, role-based permissions, multi-company tenancy, 
 - Integrations and purchase actions are interface demonstrations
 - Forecast values do not come from a trained production model
 - Reservation, release, adjustment and loss commands are not exposed through the API yet
-- PostgreSQL integration tests and continuous integration are not configured yet
 - Authentication and multi-company access are not implemented
 
 ## Next steps
 
 1. Connect the React interface to the API and remove duplicated inventory state from the frontend
 2. Add reservation, release, adjustment and loss commands with the same transactional guarantees
-3. Add PostgreSQL integration tests, frontend tests and GitHub Actions
+3. Add frontend component and end-to-end tests to the existing CI workflow
 4. Add the M5 data ingestion and temporal-validation pipeline
 5. Train baselines and a validated P10/P50/P90 forecasting model
 6. Build replenishment, excess and expiration recommendations from persisted data

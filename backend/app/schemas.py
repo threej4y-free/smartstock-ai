@@ -88,6 +88,14 @@ class InventoryLotRead(ApiModel):
     updated_at: datetime
 
 
+class InventoryPolicyUpdate(ApiModel):
+    expiration_safety_days: int = Field(ge=0, le=365)
+
+
+class InventoryPolicyRead(InventoryPolicyUpdate):
+    updated_at: datetime | None = None
+
+
 class StockMovementRead(ApiModel):
     id: uuid.UUID
     product_id: uuid.UUID

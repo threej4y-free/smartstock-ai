@@ -10,22 +10,21 @@ from app.database import get_db
 from app.errors import NotFoundError
 from app.models import Product
 from app.schemas import ProductCreate, ProductRead
-from app.services.inventory import create_product, product_stock_summary
+from app.services.inventory import create_product, product_stock_summaries
 
 router = APIRouter(prefix="/products", tags=["products"])
 DbSession = Annotated[Session, Depends(get_db)]
 
 
-def _read_product(session: Session, product: Product, on_date: date | None = None) -> ProductRead:
-    return ProductRead.model_validate(
-        {**product.__dict__, **product_stock_summary(session, product.id, on_date=on_date)}
-    )
+def _read_product(product: Product, stock_summary: dict[str, int | date | None]) -> ProductRead:
+    return ProductRead.model_validate({**product.__dict__, **stock_summary})
 
 
 @router.post("", response_model=ProductRead, status_code=status.HTTP_201_CREATED)
 def post_product(payload: ProductCreate, db: DbSession) -> ProductRead:
     product = create_product(db, **payload.model_dump())
-    return _read_product(db, product)
+    summary = product_stock_summaries(db, [product.id])[product.id]
+    return _read_product(product, summary)
 
 
 @router.get("", response_model=list[ProductRead])
@@ -45,7 +44,8 @@ def get_products(
     if active is not None:
         statement = statement.where(Product.active == active)
     products = db.scalars(statement.order_by(Product.name).limit(limit).offset(offset)).all()
-    return [_read_product(db, product) for product in products]
+    summaries = product_stock_summaries(db, [product.id for product in products])
+    return [_read_product(product, summaries[product.id]) for product in products]
 
 
 @router.get("/{product_id}", response_model=ProductRead)
@@ -53,4 +53,5 @@ def get_product(product_id: uuid.UUID, db: DbSession) -> ProductRead:
     product = db.get(Product, product_id)
     if not product:
         raise NotFoundError("Product not found")
-    return _read_product(db, product)
+    summary = product_stock_summaries(db, [product.id])[product.id]
+    return _read_product(product, summary)
