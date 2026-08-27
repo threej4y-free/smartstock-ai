@@ -1,6 +1,15 @@
 node_modules/
 dist/
 .vite/
+.venv/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+*.py[cod]
+*.egg-info/
+.coverage
+htmlcov/
+.env
 *.local
 *.log
 *.tsbuildinfo

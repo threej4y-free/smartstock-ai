@@ -44,13 +44,43 @@ Inventory teams frequently work across disconnected spreadsheets and react only 
 
 ## Technology
 
-- React
-- TypeScript
-- Vite
+- React, TypeScript and Vite
 - Recharts
 - Lucide React
 - CSS with responsive layouts and design tokens
 - ESLint
+- FastAPI and Pydantic
+- PostgreSQL and SQLAlchemy 2
+- Alembic migrations
+- Pytest and Ruff
+
+## Backend foundation
+
+The backend in `backend/` is the source of truth for the real inventory domain. Product stock
+is not stored as a duplicated total: it is derived from inventory lots.
+
+- A receipt creates an `InventoryLot` and a positive `StockMovement` atomically
+- Every lot keeps its supplier, invoice, receipt date, expiration, unit cost and location
+- Available and reserved quantities are constrained at database level
+- Sales allocate valid, unblocked inventory using FEFO and may span multiple lots
+- Expired or manually blocked lots remain auditable but contribute zero sellable units
+- Products, suppliers, lots, movements and sales are exposed under `/api/v1`
+
+The frontend still uses demonstration data while the API integration is developed. It must not
+write a second inventory balance when that integration is added.
+
+### API surface
+
+| Method | Endpoint | Purpose |
+| --- | --- | --- |
+| `GET`, `POST` | `/api/v1/products` | List and register catalog products |
+| `GET` | `/api/v1/products/{product_id}` | Return a product with stock derived from lots |
+| `GET`, `POST` | `/api/v1/suppliers` | List and register suppliers |
+| `POST` | `/api/v1/inventory/receipts` | Receive stock and create a lot plus movement |
+| `GET` | `/api/v1/inventory/lots` | List lots in FEFO order |
+| `GET` | `/api/v1/inventory/movements` | Return the auditable inventory ledger |
+| `POST` | `/api/v1/sales` | Register a sale and allocate stock through FEFO |
+| `GET` | `/health` | Application health check |
 
 ## Run locally
 
@@ -63,14 +93,42 @@ npm run dev
 
 Open `http://localhost:5173`.
 
+### Run the API and PostgreSQL
+
+With Docker installed:
+
+```bash
+docker compose up --build
+```
+
+The API is available at `http://localhost:8000`, with interactive documentation at
+`http://localhost:8000/docs`. The API container applies Alembic migrations before starting.
+
+For local Python development, start PostgreSQL first and then run:
+
+```bash
+cd backend
+python -m venv .venv
+# Windows: .venv\Scripts\activate
+# macOS/Linux: source .venv/bin/activate
+pip install -e ".[test]"
+alembic upgrade head
+uvicorn app.main:app --reload
+```
+
 ## Quality checks
 
 ```bash
 npm run lint
 npm run build
+cd backend
+ruff check .
+pytest
 ```
 
-Both commands must pass before a production deployment.
+All frontend and backend checks must pass before a production deployment. The backend suite
+currently covers receipts, lot traceability, database constraints, FEFO allocation, expired-lot
+blocking and insufficient-stock errors.
 
 ## Forecasting concept
 
@@ -98,20 +156,23 @@ Authentication, user management, role-based permissions, multi-company tenancy, 
 
 ## Current limitations
 
-- Demonstration data is stored in the frontend
+- The frontend still reads demonstration data instead of the API
 - Settings persist only during the active browser session
 - Integrations and purchase actions are interface demonstrations
 - Forecast values do not come from a trained production model
+- Reservation, release, adjustment and loss commands are not exposed through the API yet
+- PostgreSQL integration tests and continuous integration are not configured yet
 - Authentication and multi-company access are not implemented
 
 ## Next steps
 
-1. Connect the interface to a FastAPI backend and PostgreSQL database
-2. Add the M5 data ingestion and validation pipeline
-3. Train and compare baseline and gradient-boosting models
-4. Persist products, batches, movements and settings
-5. Add automated component and end-to-end tests
-6. Introduce authentication and administration when required
+1. Connect the React interface to the API and remove duplicated inventory state from the frontend
+2. Add reservation, release, adjustment and loss commands with the same transactional guarantees
+3. Add PostgreSQL integration tests, frontend tests and GitHub Actions
+4. Add the M5 data ingestion and temporal-validation pipeline
+5. Train baselines and a validated P10/P50/P90 forecasting model
+6. Build replenishment, excess and expiration recommendations from persisted data
+7. Introduce authentication, authorization and multi-company administration when required
 
 ## Disclaimer
 
